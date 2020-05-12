@@ -25,7 +25,7 @@ window.interop = {
             document.title = title;
         }
     },
-    updateMeta: function (id, attribute, name, content) {
+    includeMeta: function (id, attribute, name, content) {
         var meta;
         if (id !== "") {
             meta = document.getElementById(id);
@@ -48,7 +48,7 @@ window.interop = {
             }
         }
     },
-    updateLink: function (id, rel, type, url) {
+    includeLink: function (id, rel, url, type, integrity, crossorigin) {
         var link;
         if (id !== "") {
             link = document.getElementById(id);
@@ -62,13 +62,81 @@ window.interop = {
                 link.id = id;
             }
             link.rel = rel;
-            link.type = type;
             link.href = url;
+            if (type !== "") {
+                link.type = type;
+            }
+            if (integrity !== "") {
+                link.integrity = integrity;
+            }
+            if (crossorigin !== "") {
+                link.crossOrigin = crossorigin;
+            }
             document.head.appendChild(link);
         }
         else {
+            if (link.rel !== rel) {
+                link.setAttribute('rel', rel);
+            }
             if (link.href !== url) {
                 link.setAttribute('href', url);
+            }
+            if (type !== "" && link.type !== type) {
+                link.setAttribute('type', type);
+            }
+            if (integrity !== "" && link.integrity !== integrity) {
+                link.setAttribute('integrity', integrity);
+            }
+            if (crossorigin !== "" && link.crossOrigin !== crossorigin) {
+                link.setAttribute('crossorigin', crossorigin);
+            }
+        }
+    },
+    includeScript: function (id, src, content, location, integrity, crossorigin) {
+        var script;
+        if (id !== "") {
+            script = document.getElementById(id);
+        }
+        if (script === null) {
+            script = document.createElement("script");
+            if (id !== "") {
+                script.id = id;
+            }
+            if (src !== "") {
+                script.src = src;
+                if (integrity !== "") {
+                    script.integrity = integrity;
+                }
+                if (crossorigin !== "") {
+                    script.crossorigin = crossorigin;
+                }
+            }
+            else {
+                script.innerHTML = content;
+            }
+            if (location === 'head') {
+                document.head.appendChild(script);
+            }
+            if (location === 'body') {
+                document.body.appendChild(script);
+            }
+        }
+        else {
+            if (src !== "") {
+                if (script.src !== src) {
+                    script.src = src;
+                }
+                if (integrity !== "" && script.integrity !== integrity) {
+                    script.setAttribute('integrity', integrity);
+                }
+                if (crossorigin !== "" && script.crossorigin !== crossorigin) {
+                    script.setAttribute('crossorigin', crossorigin);
+                }
+            }
+            else {
+                if (script.innerHTML !== content) {
+                    script.innerHTML = content;
+                }
             }
         }
     },

@@ -6,7 +6,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Http;
 using System.Collections.Generic;
 using Oqtane.Enums;
-using Oqtane.Infrastructure.Interfaces;
 using Oqtane.Repository;
 using Oqtane.Security;
 // ReSharper disable StringIndexOfIsCultureSpecific.2
@@ -70,13 +69,17 @@ namespace Oqtane.Infrastructure
             {
                 log.UserId = user.UserId;
             }
-            HttpRequest request = _accessor.HttpContext.Request;
-            if (request != null)
+            log.Url = "";
+            if (_accessor.HttpContext != null)
             {
-                log.Url = $"{request.Scheme}://{request.Host}{request.Path}{request.QueryString}";
+                HttpRequest request = _accessor.HttpContext.Request;
+                if (request != null)
+                {
+                    log.Url = $"{request.Scheme}://{request.Host}{request.Path}{request.QueryString}";
+                }
             }
 
-            Type type = @class.GetType();
+            Type type = Type.GetType(@class.ToString());
             if (type != null)
             {
                 log.Category = type.AssemblyQualifiedName;

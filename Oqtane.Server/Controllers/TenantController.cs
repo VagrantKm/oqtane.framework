@@ -4,12 +4,12 @@ using Oqtane.Models;
 using System.Collections.Generic;
 using Oqtane.Enums;
 using Oqtane.Shared;
-using Oqtane.Infrastructure.Interfaces;
+using Oqtane.Infrastructure;
 using Oqtane.Repository;
 
 namespace Oqtane.Controllers
 {
-    [Route("{site}/api/[controller]")]
+    [Route("{alias}/api/[controller]")]
     public class TenantController : Controller
     {
         private readonly ITenantRepository _tenants;
@@ -23,7 +23,7 @@ namespace Oqtane.Controllers
 
         // GET: api/<controller>
         [HttpGet]
-        [Authorize(Roles = Constants.HostRole)]
+        [Authorize(Roles = Constants.AdminRole)]
         public IEnumerable<Tenant> Get()
         {
             return _tenants.GetTenants();
@@ -31,7 +31,7 @@ namespace Oqtane.Controllers
 
         // GET api/<controller>/5
         [HttpGet("{id}")]
-        [Authorize(Roles = Constants.HostRole)]
+        [Authorize(Roles = Constants.AdminRole)]
         public Tenant Get(int id)
         {
             return _tenants.GetTenant(id);

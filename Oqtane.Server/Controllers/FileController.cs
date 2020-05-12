@@ -14,14 +14,14 @@ using System.Linq;
 using System.Drawing;
 using System.Net;
 using Oqtane.Enums;
-using Oqtane.Infrastructure.Interfaces;
+using Oqtane.Infrastructure;
 using Oqtane.Repository;
 
 // ReSharper disable StringIndexOfIsCultureSpecific.1
 
 namespace Oqtane.Controllers
 {
-    [Route("{site}/api/[controller]")]
+    [Route("{alias}/api/[controller]")]
     public class FileController : Controller
     {
         private readonly IWebHostEnvironment _environment;
@@ -81,22 +81,22 @@ namespace Oqtane.Controllers
             Folder folder = _folders.GetFolder(siteId, folderPath);
             List<Models.File> files;
             if (folder != null)
+            {
                 if (_userPermissions.IsAuthorized(User, PermissionNames.Browse, folder.Permissions))
                 {
                     files = _files.GetFiles(folder.FolderId).ToList();
                 }
                 else
                 {
-                    _logger.Log(LogLevel.Error, this, LogFunction.Read, "User Not Authorized To Access Folder {folder}",
-                        folder);
+                    _logger.Log(LogLevel.Error, this, LogFunction.Read, "User Not Authorized To Access Folder {folder}", folder);
                     HttpContext.Response.StatusCode = 401;
                     return null;
                 }
+            }
             else
             {
-                _logger.Log(LogLevel.Error, this, LogFunction.Read, "Folder not found {path}",
-                    path);
-                HttpContext.Response.StatusCode = 401;
+                _logger.Log(LogLevel.Error, this, LogFunction.Read, "Folder Not Found {SiteId} {Path}", siteId, path);
+                HttpContext.Response.StatusCode = 404;
                 return null;
             }
 
@@ -108,14 +108,23 @@ namespace Oqtane.Controllers
         public Models.File Get(int id)
         {
             Models.File file = _files.GetFile(id);
-            if (_userPermissions.IsAuthorized(User, PermissionNames.View, file.Folder.Permissions))
+            if (file != null)
             {
-                return file;
+                if (_userPermissions.IsAuthorized(User, PermissionNames.View, file.Folder.Permissions))
+                {
+                    return file;
+                }
+                else
+                {
+                    _logger.Log(LogLevel.Error, this, LogFunction.Read, "User Not Authorized To Access File {File}", file);
+                    HttpContext.Response.StatusCode = 401;
+                    return null;
+                }
             }
             else
             {
-                _logger.Log(LogLevel.Error, this, LogFunction.Read, "User Not Authorized To Access File {File}", file);
-                HttpContext.Response.StatusCode = 401;
+                _logger.Log(LogLevel.Error, this, LogFunction.Read, "File Not Found {FileId}", id);
+                HttpContext.Response.StatusCode = 404;
                 return null;
             }
         }
@@ -146,22 +155,30 @@ namespace Oqtane.Controllers
         public void Delete(int id)
         {
             Models.File file = _files.GetFile(id);
-            if (_userPermissions.IsAuthorized(User, EntityNames.Folder, file.Folder.FolderId, PermissionNames.Edit))
+            if (file != null)
             {
-                _files.DeleteFile(id);
-
-                string filepath = Path.Combine(GetFolderPath(file.Folder) + file.Name);
-                if (System.IO.File.Exists(filepath))
+                if (_userPermissions.IsAuthorized(User, EntityNames.Folder, file.Folder.FolderId, PermissionNames.Edit))
                 {
-                    System.IO.File.Delete(filepath);
-                }
+                    _files.DeleteFile(id);
 
-                _logger.Log(LogLevel.Information, this, LogFunction.Delete, "File Deleted {File}", file);
+                    string filepath = Path.Combine(GetFolderPath(file.Folder), file.Name);
+                    if (System.IO.File.Exists(filepath))
+                    {
+                        System.IO.File.Delete(filepath);
+                    }
+
+                    _logger.Log(LogLevel.Information, this, LogFunction.Delete, "File Deleted {File}", file);
+                }
+                else
+                {
+                    _logger.Log(LogLevel.Error, this, LogFunction.Delete, "User Not Authorized To Delete File {FileId}", id);
+                    HttpContext.Response.StatusCode = 401;
+                }
             }
             else
             {
-                _logger.Log(LogLevel.Error, this, LogFunction.Delete, "User Not Authorized To Delete File {FileId}", id);
-                HttpContext.Response.StatusCode = 401;
+                _logger.Log(LogLevel.Error, this, LogFunction.Delete, "File Not Found {FileId}", id);
+                HttpContext.Response.StatusCode = 404;
             }
         }
 
@@ -177,19 +194,20 @@ namespace Oqtane.Controllers
                 CreateDirectory(folderPath);
                 string filename = url.Substring(url.LastIndexOf("/", StringComparison.Ordinal) + 1);
                 // check for allowable file extensions
-                if (Constants.UploadableFiles.Contains(Path.GetExtension(filename).Replace(".", "")))
+                if (Constants.UploadableFiles.Split(',').Contains(Path.GetExtension(filename).ToLower().Replace(".", "")))
                 {
                     try
                     {
                         var client = new WebClient();
+                        string targetPath = Path.Combine(folderPath, filename);
                         // remove file if it already exists
-                        if (System.IO.File.Exists(folderPath + filename))
+                        if (System.IO.File.Exists(targetPath))
                         {
-                            System.IO.File.Delete(folderPath + filename);
+                            System.IO.File.Delete(targetPath);
                         }
 
-                        client.DownloadFile(url, folderPath + filename);
-                        _files.AddFile(CreateFile(filename, folder.FolderId, folderPath + filename));
+                        client.DownloadFile(url, targetPath);
+                        _files.AddFile(CreateFile(filename, folder.FolderId, targetPath));
                     }
                     catch
                     {
@@ -245,7 +263,7 @@ namespace Oqtane.Controllers
                     string upload = await MergeFile(folderPath, file.FileName);
                     if (upload != "" && folderId != -1)
                     {
-                        _files.AddFile(CreateFile(upload, folderId, folderPath + upload));
+                        _files.AddFile(CreateFile(upload, folderId, Path.Combine(folderPath, upload)));
                     }
                 }
                 else
@@ -299,7 +317,7 @@ namespace Oqtane.Controllers
                     }
 
                     // check for allowable file extensions
-                    if (!Constants.UploadableFiles.Contains(Path.GetExtension(filename)?.Replace(".", "")))
+                    if (!Constants.UploadableFiles.Split(',').Contains(Path.GetExtension(filename)?.ToLower().Replace(".", "")))
                     {
                         System.IO.File.Delete(Path.Combine(folder, filename + ".tmp"));
                     }
@@ -379,37 +397,46 @@ namespace Oqtane.Controllers
         public IActionResult Download(int id)
         {
             Models.File file = _files.GetFile(id);
-            if (file != null && _userPermissions.IsAuthorized(User, PermissionNames.View, file.Folder.Permissions))
+            if (file != null)
             {
-                string filepath = GetFolderPath(file.Folder) + file.Name;
-                if (System.IO.File.Exists(filepath))
+                if (_userPermissions.IsAuthorized(User, PermissionNames.View, file.Folder.Permissions))
                 {
-                    byte[] filebytes = System.IO.File.ReadAllBytes(filepath);
-                    return File(filebytes, "application/octet-stream", file.Name);
+                    string filepath = Path.Combine(GetFolderPath(file.Folder) , file.Name);
+                    if (System.IO.File.Exists(filepath))
+                    {
+                        byte[] filebytes = System.IO.File.ReadAllBytes(filepath);
+                        return File(filebytes, "application/octet-stream", file.Name);
+                    }
+                    else
+                    {
+                        _logger.Log(LogLevel.Error, this, LogFunction.Read, "File Does Not Exist {FileId} {FilePath}", id, filepath);
+                        HttpContext.Response.StatusCode = 404;
+                        return null;
+                    }
                 }
                 else
                 {
-                    _logger.Log(LogLevel.Error, this, LogFunction.Read, "File Does Not Exist {File}", file);
-                    HttpContext.Response.StatusCode = 404;
+                    _logger.Log(LogLevel.Error, this, LogFunction.Read, "User Not Authorized To Access File {FileId}", id);
+                    HttpContext.Response.StatusCode = 401;
                     return null;
                 }
             }
             else
             {
-                _logger.Log(LogLevel.Error, this, LogFunction.Read, "User Not Authorized To Access File {FileId}", id);
-                HttpContext.Response.StatusCode = 401;
+                _logger.Log(LogLevel.Error, this, LogFunction.Read, "File Not Found {FileId}", id);
+                HttpContext.Response.StatusCode = 404;
                 return null;
             }
         }
 
         private string GetFolderPath(Folder folder)
         {
-            return _environment.ContentRootPath + "\\Content\\Tenants\\" + _tenants.GetTenant().TenantId.ToString() + "\\Sites\\" + folder.SiteId.ToString() + "\\" + folder.Path;
+            return Utilities.PathCombine(_environment.ContentRootPath, "Content", "Tenants", _tenants.GetTenant().TenantId.ToString(), "Sites", folder.SiteId.ToString(), folder.Path);
         }
 
         private string GetFolderPath(string folder)
         {
-            return Path.Combine(_environment.WebRootPath, folder);
+            return Utilities.PathCombine(_environment.WebRootPath, folder);
         }
 
         private void CreateDirectory(string folderpath)
@@ -417,10 +444,11 @@ namespace Oqtane.Controllers
             if (!Directory.Exists(folderpath))
             {
                 string path = "";
-                string[] folders = folderpath.Split(new[] {'\\'}, StringSplitOptions.RemoveEmptyEntries);
+                var separators = new char[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar };
+                string[] folders = folderpath.Split(separators, StringSplitOptions.RemoveEmptyEntries);
                 foreach (string folder in folders)
                 {
-                    path += folder + "\\";
+                    path = Utilities.PathCombine(path, folder,"\\");
                     if (!Directory.Exists(path))
                     {
                         Directory.CreateDirectory(path);
@@ -441,7 +469,7 @@ namespace Oqtane.Controllers
             file.ImageHeight = 0;
             file.ImageWidth = 0;
 
-            if (Constants.ImageFiles.Contains(file.Extension))
+            if (Constants.ImageFiles.Split(',').Contains(file.Extension.ToLower()))
             {
                 FileStream stream = new FileStream(filepath, FileMode.Open, FileAccess.Read);
                 using (var image = Image.FromStream(stream))

@@ -4,12 +4,12 @@ using Microsoft.AspNetCore.Authorization;
 using Oqtane.Enums;
 using Oqtane.Models;
 using Oqtane.Shared;
-using Oqtane.Infrastructure.Interfaces;
+using Oqtane.Infrastructure;
 using Oqtane.Repository;
 
 namespace Oqtane.Controllers
 {
-    [Route("{site}/api/[controller]")]
+    [Route("{alias}/api/[controller]")]
     public class JobLogController : Controller
     {
         private readonly IJobLogRepository _jobLogs;

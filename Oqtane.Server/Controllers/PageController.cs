@@ -7,29 +7,30 @@ using System.Linq;
 using Oqtane.Security;
 using System.Net;
 using Oqtane.Enums;
-using Oqtane.Infrastructure.Interfaces;
+using Oqtane.Extensions;
+using Oqtane.Infrastructure;
 using Oqtane.Repository;
 
 namespace Oqtane.Controllers
 {
-    [Route("{site}/api/[controller]")]
+    [Route("{alias}/api/[controller]")]
     public class PageController : Controller
     {
         private readonly IPageRepository _pages;
         private readonly IModuleRepository _modules;
         private readonly IPageModuleRepository _pageModules;
         private readonly IUserPermissions _userPermissions;
-        private readonly IPermissionRepository _permissionRepository;
+        private readonly ITenantResolver _tenants;
         private readonly ISyncManager _syncManager;
         private readonly ILogManager _logger;
 
-        public PageController(IPageRepository pages, IModuleRepository modules, IPageModuleRepository pageModules, IUserPermissions userPermissions, IPermissionRepository permissionRepository, ISyncManager syncManager, ILogManager logger)
+        public PageController(IPageRepository pages, IModuleRepository modules, IPageModuleRepository pageModules, IUserPermissions userPermissions, ITenantResolver tenants, ISyncManager syncManager, ILogManager logger)
         {
             _pages = pages;
             _modules = modules;
             _pageModules = pageModules;
             _userPermissions = userPermissions;
-            _permissionRepository = permissionRepository;
+            _tenants = tenants;
             _syncManager = syncManager;
             _logger = logger;
         }
@@ -113,16 +114,26 @@ namespace Oqtane.Controllers
                 }
                 else
                 {
-                    permissions = _permissionRepository.EncodePermissions(new List<Permission> {
+                    permissions = new List<Permission> {
                         new Permission(PermissionNames.Edit, Constants.AdminRole, true)
-                    });
+                    }.EncodePermissions();
                 }
             
                 if (_userPermissions.IsAuthorized(User,PermissionNames.Edit, permissions))
                 {
                     page = _pages.AddPage(page);
-                    _syncManager.AddSyncEvent(EntityNames.Site, page.SiteId);
+                    _syncManager.AddSyncEvent(_tenants.GetTenant().TenantId, EntityNames.Site, page.SiteId);
                     _logger.Log(LogLevel.Information, this, LogFunction.Create, "Page Added {Page}", page);
+
+                    if (!page.EditMode)
+                    {
+                        var modules = _modules.GetModules(page.SiteId).Where(item => item.AllPages).ToList();
+                        foreach (Module module in modules)
+                        {
+                            var pageModule = _pageModules.GetPageModules(page.SiteId).FirstOrDefault(item => item.ModuleId == module.ModuleId);
+                            _pageModules.AddPageModule(new PageModule { PageId = page.PageId, ModuleId = pageModule.ModuleId, Title = pageModule.Title, Pane = pageModule.Pane, Order = pageModule.Order, ContainerType = pageModule.ContainerType });
+                        }
+                    }
                 }
                 else
                 {
@@ -146,22 +157,24 @@ namespace Oqtane.Controllers
                 page = new Page();
                 page.SiteId = parent.SiteId;
                 page.Name = parent.Name;
+                page.Title = parent.Title;
                 page.Path = parent.Path;
                 page.ParentId = parent.PageId;
                 page.Order = 0;
                 page.IsNavigation = false;
+                page.Url = "";
                 page.EditMode = false;
                 page.ThemeType = parent.ThemeType;
                 page.LayoutType = parent.LayoutType;
                 page.Icon = parent.Icon;
-                page.Permissions = _permissionRepository.EncodePermissions(new List<Permission> {
+                page.Permissions = new List<Permission> {
                     new Permission(PermissionNames.View, userid, true),
                     new Permission(PermissionNames.Edit, userid, true)
-                });
+                }.EncodePermissions();
                 page.IsPersonalizable = false;
                 page.UserId = int.Parse(userid);
                 page = _pages.AddPage(page);
-                _syncManager.AddSyncEvent(EntityNames.Site, page.SiteId);
+                _syncManager.AddSyncEvent(_tenants.GetTenant().TenantId, EntityNames.Site, page.SiteId);
 
                 // copy modules
                 List<PageModule> pagemodules = _pageModules.GetPageModules(page.SiteId).ToList();
@@ -171,10 +184,11 @@ namespace Oqtane.Controllers
                     module.SiteId = page.SiteId;
                     module.PageId = page.PageId;
                     module.ModuleDefinitionName = pm.Module.ModuleDefinitionName;
-                    module.Permissions = _permissionRepository.EncodePermissions(new List<Permission> {
+                    module.AllPages = false;
+                    module.Permissions = new List<Permission> {
                         new Permission(PermissionNames.View, userid, true),
                         new Permission(PermissionNames.Edit, userid, true)
-                    });
+                    }.EncodePermissions();
                     module = _modules.AddModule(module);
 
                     string content = _modules.ExportModule(pm.ModuleId);
@@ -205,7 +219,7 @@ namespace Oqtane.Controllers
             if (ModelState.IsValid && _userPermissions.IsAuthorized(User, EntityNames.Page, page.PageId, PermissionNames.Edit))
             {
                 page = _pages.UpdatePage(page);
-                _syncManager.AddSyncEvent(EntityNames.Site, page.SiteId);
+                _syncManager.AddSyncEvent(_tenants.GetTenant().TenantId, EntityNames.Site, page.SiteId);
                 _logger.Log(LogLevel.Information, this, LogFunction.Update, "Page Updated {Page}", page);
             }
             else
@@ -235,7 +249,7 @@ namespace Oqtane.Controllers
                     }
                     order += 2;
                 }
-                _syncManager.AddSyncEvent(EntityNames.Site, siteid);
+                _syncManager.AddSyncEvent(_tenants.GetTenant().TenantId, EntityNames.Site, siteid);
                 _logger.Log(LogLevel.Information, this, LogFunction.Update, "Page Order Updated {SiteId} {PageId} {ParentId}", siteid, pageid, parentid);
             }
             else
@@ -254,7 +268,7 @@ namespace Oqtane.Controllers
             if (_userPermissions.IsAuthorized(User, EntityNames.Page, page.PageId, PermissionNames.Edit))
             {
                 _pages.DeletePage(page.PageId);
-                _syncManager.AddSyncEvent(EntityNames.Site, page.SiteId);
+                _syncManager.AddSyncEvent(_tenants.GetTenant().TenantId, EntityNames.Site, page.SiteId);
                 _logger.Log(LogLevel.Information, this, LogFunction.Delete, "Page Deleted {PageId}", page.PageId);
             }
             else

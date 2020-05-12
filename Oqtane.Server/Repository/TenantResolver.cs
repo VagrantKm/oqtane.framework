@@ -15,57 +15,37 @@ namespace Oqtane.Repository
         public TenantResolver(IHttpContextAccessor accessor, IAliasRepository aliasRepository, ITenantRepository tenantRepository, SiteState siteState)
         {
             int aliasId = -1;
-            string aliasName = "";
 
-            // get alias identifier based on request context
-            if (accessor.HttpContext != null)
+            if (siteState != null && siteState.Alias != null)
             {
-                // check if an alias is passed as a querystring parameter ( for cross tenant access )
-                if (accessor.HttpContext.Request.Query.ContainsKey("aliasid"))
+                // background processes can pass in an alias using the SiteState service
+                _alias = siteState.Alias;
+            }
+            else
+            {
+                // get aliasid identifier based on request
+                if (accessor.HttpContext != null)
                 {
-                    aliasId = int.Parse(accessor.HttpContext.Request.Query["aliasid"]);
-                }
-                else // get the alias from the request url
-                {
-                    aliasName = accessor.HttpContext.Request.Host.Value;
-                    string path = accessor.HttpContext.Request.Path.Value;
-                    string[] segments = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
-                    if (segments.Length > 1 && segments[1] == "api" && segments[0] != "~")
+                    string[] segments = accessor.HttpContext.Request.Path.Value.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (segments.Length > 1 && (segments[1] == "api" || segments[1] == "pages") && segments[0] != "~")
                     {
-                        aliasName += "/" + segments[0];
-                    }
-                    if (aliasName.EndsWith("/"))
-                    {
-                        aliasName = aliasName.Substring(0, aliasName.Length - 1);
+                        aliasId = int.Parse(segments[0]);
                     }
                 }
-            }
-            else  // background processes can pass in an alias using the SiteState service
-            {
-                if (siteState != null)
-                {
-                    aliasId = siteState.Alias.AliasId;
-                }
-            }
 
-            // get the alias and tenant
-            if (aliasId != -1 || aliasName != "")
-            {
-                IEnumerable<Alias> aliases = aliasRepository.GetAliases(); // cached
-                IEnumerable<Tenant> tenants = tenantRepository.GetTenants(); // cached
-
+                // get the alias
+                IEnumerable<Alias> aliases = aliasRepository.GetAliases().ToList(); // cached
                 if (aliasId != -1)
                 {
                     _alias = aliases.FirstOrDefault(item => item.AliasId == aliasId);
                 }
-                else
-                {
-                    _alias = aliases.FirstOrDefault(item => item.Name == aliasName);
-                }
-                if (_alias != null)
-                {
-                    _tenant = tenants.FirstOrDefault(item => item.TenantId == _alias.TenantId);
-                }
+            }
+
+            if (_alias != null)
+            {
+                // get the tenant
+                IEnumerable<Tenant> tenants = tenantRepository.GetTenants(); // cached
+                _tenant = tenants.FirstOrDefault(item => item.TenantId == _alias.TenantId);
             }
         }
 

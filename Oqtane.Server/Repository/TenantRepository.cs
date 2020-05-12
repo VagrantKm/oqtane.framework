@@ -4,6 +4,7 @@ using System.Linq;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Oqtane.Models;
+using Oqtane.Shared;
 
 namespace Oqtane.Repository
 {
@@ -37,6 +38,13 @@ namespace Oqtane.Repository
 
         public Tenant UpdateTenant(Tenant tenant)
         {
+            var oldTenant =_db.Tenant.AsNoTracking().FirstOrDefault(t=> t.TenantId == tenant.TenantId);
+            
+            if (oldTenant != null && (oldTenant.Name.Equals(Constants.MasterTenant, StringComparison.OrdinalIgnoreCase) && !oldTenant.Name.Equals(tenant.Name)))
+            {
+                throw new InvalidOperationException("Unable to rename the master tenant.");
+            }
+            
             _db.Entry(tenant).State = EntityState.Modified;
             _db.SaveChanges();
             _cache.Remove("tenants");
@@ -49,10 +57,14 @@ namespace Oqtane.Repository
         }
 
         public void DeleteTenant(int tenantId)
-        { 
-            Tenant tenant = _db.Tenant.Find(tenantId);
-            _db.Tenant.Remove(tenant);
-            _db.SaveChanges();
+        {
+            var tenant = GetTenant(tenantId);
+            if (tenant != null && !tenant.Name.Equals(Constants.MasterTenant, StringComparison.OrdinalIgnoreCase))
+            {
+                _db.Tenant.Remove(tenant);
+                _db.SaveChanges();
+            }
+
             _cache.Remove("tenants");
         }
     }

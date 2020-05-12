@@ -11,12 +11,12 @@ using Oqtane.Shared;
 using System;
 using System.Net;
 using Oqtane.Enums;
-using Oqtane.Infrastructure.Interfaces;
+using Oqtane.Infrastructure;
 using Oqtane.Repository;
 
 namespace Oqtane.Controllers
 {
-    [Route("{site}/api/[controller]")]
+    [Route("{alias}/api/[controller]")]
     public class UserController : Controller
     {
         private readonly IUserRepository _users;
@@ -28,9 +28,10 @@ namespace Oqtane.Controllers
         private readonly INotificationRepository _notifications;
         private readonly IFolderRepository _folders;
         private readonly ISyncManager _syncManager;
+        private readonly ISiteRepository _sites;
         private readonly ILogManager _logger;
 
-        public UserController(IUserRepository users, IRoleRepository roles, IUserRoleRepository userRoles, UserManager<IdentityUser> identityUserManager, SignInManager<IdentityUser> identitySignInManager, ITenantResolver tenants, INotificationRepository notifications, IFolderRepository folders, ISyncManager syncManager, ILogManager logger)
+        public UserController(IUserRepository users, IRoleRepository roles, IUserRoleRepository userRoles, UserManager<IdentityUser> identityUserManager, SignInManager<IdentityUser> identitySignInManager, ITenantResolver tenants, INotificationRepository notifications, IFolderRepository folders, ISyncManager syncManager, ISiteRepository sites, ILogManager logger)
         {
             _users = users;
             _roles = roles;
@@ -41,6 +42,7 @@ namespace Oqtane.Controllers
             _folders = folders;
             _notifications = notifications;
             _syncManager = syncManager;
+            _sites = sites;
             _logger = logger;
         }
 
@@ -75,13 +77,35 @@ namespace Oqtane.Controllers
         [HttpPost]
         public async Task<User> Post([FromBody] User user)
         {
-            User newUser = null;
-
             if (ModelState.IsValid)
             {
-                   // users created by non-administrators must be verified
-                bool verified = !(!User.IsInRole(Constants.AdminRole) && user.Username != Constants.HostUser);
+                var newUser = await CreateUser(user);
+                return newUser;
+            }
 
+            return null;
+        }
+
+        //TODO shoud be moved to another layer
+        private async Task<User> CreateUser(User user)
+        {
+            User newUser = null;
+
+            bool verified;
+            bool allowregistration;
+            if (user.Username == Constants.HostUser || User.IsInRole(Constants.AdminRole))
+            {
+                verified = true;
+                allowregistration = true;
+            }
+            else
+            {
+                verified = false;
+                allowregistration = _sites.GetSite(user.SiteId).AllowRegistration;
+            }
+
+            if (allowregistration)
+            {
                 IdentityUser identityuser = await _identityUserManager.FindByNameAsync(user.Username);
                 if (identityuser == null)
                 {
@@ -126,11 +150,20 @@ namespace Oqtane.Controllers
                         }
 
                         // add folder for user
-                        Folder folder = _folders.GetFolder(user.SiteId, "Users\\");
+                        Folder folder = _folders.GetFolder(user.SiteId, Utilities.PathCombine("Users","\\"));
                         if (folder != null)
                         {
-                            _folders.AddFolder(new Folder { SiteId = folder.SiteId, ParentId = folder.FolderId, Name = "My Folder", Path = folder.Path + newUser.UserId.ToString() + "\\", Order = 1, IsSystem = true, 
-                                Permissions = "[{\"PermissionName\":\"Browse\",\"Permissions\":\"[" + newUser.UserId.ToString() + "]\"},{\"PermissionName\":\"View\",\"Permissions\":\"All Users\"},{\"PermissionName\":\"Edit\",\"Permissions\":\"[" + newUser.UserId.ToString() + "]\"}]" });
+                            _folders.AddFolder(new Folder
+                            {
+                                SiteId = folder.SiteId,
+                                ParentId = folder.FolderId,
+                                Name = "My Folder",
+                                Path = Utilities.PathCombine(folder.Path, newUser.UserId.ToString(),"\\"),
+                                Order = 1,
+                                IsSystem = true,
+                                Permissions = "[{\"PermissionName\":\"Browse\",\"Permissions\":\"[" + newUser.UserId.ToString() + "]\"},{\"PermissionName\":\"View\",\"Permissions\":\"All Users\"},{\"PermissionName\":\"Edit\",\"Permissions\":\"[" +
+                                              newUser.UserId.ToString() + "]\"}]"
+                            });
                         }
                     }
                 }
@@ -164,6 +197,10 @@ namespace Oqtane.Controllers
                     _logger.Log(user.SiteId, LogLevel.Information, this, LogFunction.Create, "User Added {User}", newUser);
                 }
             }
+            else
+            {
+                _logger.Log(user.SiteId, LogLevel.Error, this, LogFunction.Create, "User Registration Is Not Enabled For Site. User Was Not Added {User}", user);
+            }
 
             return newUser;
         }
@@ -187,7 +224,7 @@ namespace Oqtane.Controllers
                         }
                     }
                     user = _users.UpdateUser(user);
-                    _syncManager.AddSyncEvent(EntityNames.User, user.UserId);
+                    _syncManager.AddSyncEvent(_tenants.GetTenant().TenantId, EntityNames.User, user.UserId);
                     user.Password = ""; // remove sensitive information
                     _logger.Log(LogLevel.Information, this, LogFunction.Update, "User Updated {User}", user);
                 }
@@ -271,7 +308,7 @@ namespace Oqtane.Controllers
         public async Task Logout([FromBody] User user)
         {
             await HttpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
-            _logger.Log(LogLevel.Information, this, LogFunction.Security, "User Logout {Username}", user.Username);
+            _logger.Log(LogLevel.Information, this, LogFunction.Security, "User Logout {Username}", (user != null) ? user.Username : "");
         }
 
         // POST api/<controller>/verify
@@ -369,16 +406,19 @@ namespace Oqtane.Controllers
         [HttpGet("authenticate")]
         public User Authenticate()
         {
-            User user = new User();
-            user.Username = User.Identity.Name;
-            user.IsAuthenticated = User.Identity.IsAuthenticated;
-            string roles = "";
-            foreach (var claim in User.Claims.Where(item => item.Type == ClaimTypes.Role))
+            User user = new User { IsAuthenticated = User.Identity.IsAuthenticated, Username = "", UserId = -1, Roles = "" };            
+            if (user.IsAuthenticated)
             {
-                roles += claim.Value + ";";
+                user.Username = User.Identity.Name;
+                user.UserId = int.Parse(User.Claims.First(item => item.Type == ClaimTypes.PrimarySid).Value);
+                string roles = "";
+                foreach (var claim in User.Claims.Where(item => item.Type == ClaimTypes.Role))
+                {
+                    roles += claim.Value + ";";
+                }
+                if (roles != "") roles = ";" + roles;
+                user.Roles = roles;
             }
-            if (roles != "") roles = ";" + roles;
-            user.Roles = roles;
             return user;
         }
 

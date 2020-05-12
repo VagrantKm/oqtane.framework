@@ -2,7 +2,6 @@
 using System.Threading.Tasks;
 using System.Net.Http;
 using System.Linq;
-using Microsoft.AspNetCore.Components;
 using System.Collections.Generic;
 using Oqtane.Shared;
 
@@ -10,30 +9,23 @@ namespace Oqtane.Services
 {
     public class SettingService : ServiceBase, ISettingService
     {
-        private readonly HttpClient _http;
+        
         private readonly SiteState _siteState;
-        private readonly NavigationManager _navigationManager;
 
-        public SettingService(HttpClient http, SiteState siteState, NavigationManager navigationManager)
-        {
-            _http = http;
+        public SettingService(HttpClient http, SiteState siteState) : base(http)
+        {            
             _siteState = siteState;
-            _navigationManager = navigationManager;
         }
 
-        private string Apiurl
+        private string Apiurl => CreateApiUrl(_siteState.Alias, "Setting");
+        public async Task<Dictionary<string, string>> GetTenantSettingsAsync()
         {
-            get { return CreateApiUrl(_siteState.Alias, _navigationManager.Uri, "Setting"); }
+            return await GetSettingsAsync(EntityNames.Tenant, -1);
         }
 
-        public async Task<Dictionary<string, string>> GetHostSettingsAsync()
+        public async Task UpdateTenantSettingsAsync(Dictionary<string, string> tenantSettings)
         {
-            return await GetSettingsAsync(EntityNames.Host, -1);
-        }
-
-        public async Task UpdateHostSettingsAsync(Dictionary<string, string> hostSettings)
-        {
-            await UpdateSettingsAsync(hostSettings, EntityNames.Host, -1);
+            await UpdateSettingsAsync(tenantSettings, EntityNames.Tenant, -1);
         }
 
         public async Task<Dictionary<string, string>> GetSiteSettingsAsync(int siteId)
@@ -98,8 +90,9 @@ namespace Oqtane.Services
 
         public async Task<Dictionary<string, string>> GetSettingsAsync(string entityName, int entityId)
         {
-            Dictionary<string, string> dictionary = new Dictionary<string, string>();
-            List<Setting> settings = await _http.GetJsonAsync<List<Setting>>(Apiurl + "?entityname=" + entityName + "&entityid=" + entityId.ToString());
+            var dictionary = new Dictionary<string, string>();
+            var settings = await GetJsonAsync<List<Setting>>($"{Apiurl}?entityname={entityName}&entityid={entityId}");
+            
             foreach(Setting setting in settings.OrderBy(item => item.SettingName).ToList())
             {
                 dictionary.Add(setting.SettingName, setting.SettingValue);
@@ -109,7 +102,8 @@ namespace Oqtane.Services
 
         public async Task UpdateSettingsAsync(Dictionary<string, string> settings, string entityName, int entityId)
         {
-            List<Setting> settingsList = await _http.GetJsonAsync<List<Setting>>(Apiurl + "?entityname=" + entityName + "&entityid=" + entityId.ToString());
+            var settingsList = await GetJsonAsync<List<Setting>>($"{Apiurl}?entityname={entityName}&entityid={entityId}");
+            
             foreach (KeyValuePair<string, string> kvp in settings)
             {
                 Setting setting = settingsList.FirstOrDefault(item => item.SettingName == kvp.Key);
@@ -136,22 +130,22 @@ namespace Oqtane.Services
 
         public async Task<Setting> GetSettingAsync(int settingId)
         {
-            return await _http.GetJsonAsync<Setting>(Apiurl + "/" + settingId.ToString());
+            return await GetJsonAsync<Setting>($"{Apiurl}/{settingId}");
         }
 
         public async Task<Setting> AddSettingAsync(Setting setting)
         {
-            return await _http.PostJsonAsync<Setting>(Apiurl, setting);
+            return await PostJsonAsync<Setting>(Apiurl, setting);
         }
 
         public async Task<Setting> UpdateSettingAsync(Setting setting)
         {
-            return await _http.PutJsonAsync<Setting>(Apiurl + "/" + setting.SettingId.ToString(), setting);
+            return await PutJsonAsync<Setting>($"{Apiurl}/{setting.SettingId}", setting);
         }
 
         public async Task DeleteSettingAsync(int settingId)
         {
-            await _http.DeleteAsync(Apiurl + "/" + settingId.ToString());
+            await DeleteAsync($"{Apiurl}/{settingId}");
         }
 
 

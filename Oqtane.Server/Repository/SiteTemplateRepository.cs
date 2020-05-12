@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
-using Oqtane.Infrastructure.Interfaces;
+using Oqtane.Infrastructure;
 using Oqtane.Models;
 
 namespace Oqtane.Repository
@@ -22,8 +22,8 @@ namespace Oqtane.Repository
             List<SiteTemplate> siteTemplates = new List<SiteTemplate>();
 
             // iterate through Oqtane site template assemblies
-            Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies()
-                .Where(item => item.FullName.StartsWith("Oqtane.") || item.FullName.Contains(".SiteTemplate.")).ToArray();
+            var assemblies = AppDomain.CurrentDomain.GetOqtaneAssemblies();
+                
             foreach (Assembly assembly in assemblies)
             {
                 siteTemplates = LoadSiteTemplatesFromAssembly(siteTemplates, assembly);
@@ -41,7 +41,7 @@ namespace Oqtane.Repository
                 var siteTemplateObject = ActivatorUtilities.CreateInstance(_serviceProvider, siteTemplateType);
                 siteTemplate = new SiteTemplate
                 {
-                    Name = (string)siteTemplateType.GetProperty("Name").GetValue(siteTemplateObject),
+                    Name = (string)siteTemplateType.GetProperty("Name")?.GetValue(siteTemplateObject),
                     TypeName = siteTemplateType.AssemblyQualifiedName
                 };
                 siteTemplates.Add(siteTemplate);

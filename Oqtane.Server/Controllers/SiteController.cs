@@ -5,12 +5,12 @@ using Oqtane.Models;
 using Oqtane.Shared;
 using System.Linq;
 using Oqtane.Enums;
-using Oqtane.Infrastructure.Interfaces;
+using Oqtane.Infrastructure;
 using Oqtane.Repository;
 
 namespace Oqtane.Controllers
 {
-    [Route("{site}/api/[controller]")]
+    [Route("{alias}/api/[controller]")]
     public class SiteController : Controller
     {
         private readonly ISiteRepository _sites;
@@ -70,13 +70,13 @@ namespace Oqtane.Controllers
 
         // PUT api/<controller>/5
         [HttpPut("{id}")]
-        [Authorize(Roles = Constants.HostRole)]
+        [Authorize(Roles = Constants.AdminRole)]
         public Site Put(int id, [FromBody] Site site)
         {
             if (ModelState.IsValid)
             {
                 site = _sites.UpdateSite(site);
-                _syncManager.AddSyncEvent(EntityNames.Site, site.SiteId);
+                _syncManager.AddSyncEvent(_tenants.GetTenant().TenantId, EntityNames.Site, site.SiteId);
                 _logger.Log(site.SiteId, LogLevel.Information, this, LogFunction.Update, "Site Updated {Site}", site);
             }
             return site;

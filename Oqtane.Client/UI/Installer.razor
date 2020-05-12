@@ -117,7 +117,7 @@
     <div class="row">
         <div class="mx-auto text-center">
             <button type="button" class="btn btn-success" @onclick="Install">Install Now</button><br /><br />
-            @((MarkupString)_message)
+            @((MarkupString) _message)
         </div>
         <div class="app-progress-indicator" style="@_loadingDisplay"></div>
     </div>
@@ -134,30 +134,24 @@
     private string _confirmPassword = "";
     private string _hostEmail = "";
     private string _message = "";
-
     private string _integratedSecurityDisplay = "display: none;";
     private string _loadingDisplay = "display: none;";
 
     private void SetIntegratedSecurity(ChangeEventArgs e)
     {
-        if (Convert.ToBoolean((string)e.Value))
-        {
-            _integratedSecurityDisplay = "display: none;";
-        }
-        else
-        {
-            _integratedSecurityDisplay = "";
-        }
+        _integratedSecurityDisplay = Convert.ToBoolean((string)e.Value)
+            ? "display: none;"
+            : string.Empty;
     }
 
     private async Task Install()
     {
-        if (_hostUsername != "" && _hostPassword.Length >= 6 && _hostPassword == _confirmPassword && _hostEmail != "")
+        if (_serverName != "" && _databaseName != "" && _hostUsername != "" && _hostPassword.Length >= 6 && _hostPassword == _confirmPassword && _hostEmail != "")
         {
             _loadingDisplay = "";
             StateHasChanged();
 
-            string connectionstring = "";
+            var connectionstring = "";
             if (_databaseType == "LocalDB")
             {
                 connectionstring = "Data Source=" + _serverName + ";AttachDbFilename=|DataDirectory|\\" + _databaseName + ".mdf;Initial Catalog=" + _databaseName + ";Integrated Security=SSPI;";
@@ -172,30 +166,27 @@
                 else
                 {
                     connectionstring += "User ID=" + _username + ";Password=" + _password;
-
                 }
             }
-            Installation installation = await InstallationService.Install(connectionstring);
+
+            Uri uri = new Uri(NavigationManager.Uri);
+
+            var config = new InstallConfig
+            {
+                ConnectionString = connectionstring,
+                Aliases = uri.Authority,
+                HostEmail = _hostEmail,
+                HostPassword = _hostPassword,
+                HostName = Constants.HostUser,
+                TenantName = Constants.MasterTenant,
+                IsNewTenant = true,
+                SiteName = Constants.DefaultSite
+            };
+
+            var installation = await InstallationService.Install(config);
             if (installation.Success)
             {
-                Site site = new Site();
-                site.TenantId = -1; // will be populated on server
-                site.Name = "Default Site";
-                site.LogoFileId = null;
-                site.DefaultThemeType = Constants.DefaultTheme;
-                site.DefaultLayoutType = Constants.DefaultLayout;
-                site.DefaultContainerType = Constants.DefaultContainer;
-                site = await SiteService.AddSiteAsync(site, null);
-
-                User user = new User();
-                user.SiteId = site.SiteId;
-                user.Username = _hostUsername;
-                user.Password = _hostPassword;
-                user.Email = _hostEmail;
-                user.DisplayName = _hostUsername;
-                user = await UserService.AddUserAsync(user);
-
-                NavigationManager.NavigateTo("", true);
+                NavigationManager.NavigateTo(uri.Scheme + "://" + uri.Authority, true);
             }
             else
             {
@@ -208,4 +199,5 @@
             _message = "<div class=\"alert alert-danger\" role=\"alert\">Please Enter All Fields And Ensure Passwords Match And Are Greater Than 5 Characters In Length</div>";
         }
     }
+
 }

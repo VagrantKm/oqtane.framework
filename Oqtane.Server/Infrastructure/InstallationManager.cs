@@ -7,7 +7,6 @@ using System.Xml;
 using Oqtane.Shared;
 using System;
 using System.Diagnostics;
-using Oqtane.Infrastructure.Interfaces;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace Oqtane.Infrastructure
@@ -27,12 +26,24 @@ namespace Oqtane.Infrastructure
 
         public void InstallPackages(string folders, bool restart)
         {
+            var webRootPath = _environment.WebRootPath;
+            
+            var install = UnpackPackages(folders, webRootPath);
+
+            if (install && restart)
+            {
+                RestartApplication();
+            }
+        }
+
+        public static bool UnpackPackages(string folders, string webRootPath)
+        {
             bool install = false;
             string binFolder = Path.GetDirectoryName(Assembly.GetEntryAssembly()?.Location);
 
             foreach (string folder in folders.Split(','))
             {
-                string sourceFolder = Path.Combine(_environment.WebRootPath, folder);
+                string sourceFolder = Path.Combine(webRootPath, folder);
 
                 // create folder if it does not exist
                 if (!Directory.Exists(sourceFolder))
@@ -67,6 +78,7 @@ namespace Oqtane.Infrastructure
                                 {
                                     frameworkversion = node.Attributes["version"].Value;
                                 }
+
                                 reader.Close();
                             }
                         }
@@ -91,35 +103,27 @@ namespace Oqtane.Infrastructure
                                     case ".svg":
                                     case ".js":
                                     case ".css":
-                                        filename = sourceFolder + "\\" + entry.FullName.Replace("wwwroot", name).Replace("/", "\\");
+                                        string entryPath = Utilities.PathCombine(entry.FullName.Replace("wwwroot", name).Split('/'));
+                                        filename = Path.Combine(sourceFolder, entryPath);
                                         if (!Directory.Exists(Path.GetDirectoryName(filename)))
                                         {
                                             Directory.CreateDirectory(Path.GetDirectoryName(filename));
                                         }
+
                                         entry.ExtractToFile(filename, true);
                                         break;
                                 }
                             }
                         }
                     }
+
                     // remove package
                     File.Delete(packagename);
                     install = true;
                 }
             }
 
-            if (install && restart)
-            {
-                if (restart)
-                {
-                    RestartApplication();
-                }
-                else
-                {
-                    _cache.Remove("moduledefinitions");
-                    _cache.Remove("jobs");
-                }
-            }
+            return install;
         }
 
         public void UpgradeFramework()
@@ -176,17 +180,17 @@ namespace Oqtane.Infrastructure
 
         private void FinishUpgrade()
         {
-            string folder = Path.GetDirectoryName(Assembly.GetEntryAssembly()?.Location);
-
             // check if upgrade application exists
+            string folder = Path.GetDirectoryName(Assembly.GetEntryAssembly()?.Location);
             if (folder == null || !File.Exists(Path.Combine(folder, "Oqtane.Upgrade.exe"))) return;
+
             // run upgrade application
             var process = new Process
             {
                 StartInfo =
                 {
                     FileName = Path.Combine(folder, "Oqtane.Upgrade.exe"),
-                    Arguments = "",
+                    Arguments = "\"" + _environment.ContentRootPath + "\" \"" + _environment.WebRootPath + "\"",
                     ErrorDialog = false,
                     UseShellExecute = false,
                     CreateNoWindow = true,

@@ -2,14 +2,14 @@
 using Oqtane.Models;
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Authorization;
-using Oqtane.Infrastructure.Interfaces;
+using Oqtane.Infrastructure;
 using Oqtane.Repository;
 using Oqtane.Shared;
 
 namespace Oqtane.Controllers
 {
 
-    [Route("{site}/api/[controller]")]
+    [Route("{alias}/api/[controller]")]
     public class LogController : Controller
     {
         private readonly ILogManager _logger;
